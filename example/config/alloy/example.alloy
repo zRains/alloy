@@ -1,0 +1,19 @@
+prometheus.exporter.unix "localhost" {
+    // This component exposes a lot of metrics by default, so we will keep all of the default arguments.
+}
+
+prometheus.scrape "default" {
+    // Setting the scrape interval lower to make it faster to be able to see the metrics
+    scrape_interval = "10s"
+
+    targets    = prometheus.exporter.unix.localhost.targets
+    forward_to = [
+        prometheus.remote_write.local_prom.receiver,
+    ]
+}
+
+prometheus.remote_write "local_prom" {
+    endpoint {
+        url = "http://47.109.134.216:9090/api/v1/write"
+    }
+}

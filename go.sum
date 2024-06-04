@@ -1873,6 +1873,8 @@ github.com/prometheus-community/elasticsearch_exporter v1.5.0 h1:1k8CK7aPMdmJ/Lc
 github.com/prometheus-community/elasticsearch_exporter v1.5.0/go.mod h1:ZITzMapK/TzzsaKOBlNCatKGcCfp/6xIQg2ucoLHA5c=
 github.com/prometheus-community/go-runit v0.1.0 h1:uTWEj/Fn2RoLdfg/etSqwzgYNOYPrARx1BHUN052tGA=
 github.com/prometheus-community/go-runit v0.1.0/go.mod h1:AvJ9Jo3gAFu2lbM4+qfjdpq30FfiLDJZKbQ015u08IQ=
+github.com/prometheus-community/json_exporter v0.6.0 h1:t1sBXem7OmwLX9o7SR+xUTALzf3L/MnVmY6lynhAKdY=
+github.com/prometheus-community/json_exporter v0.6.0/go.mod h1:RBSvvyoTz7dlJHiNUxmM5gEdbSaaq1RrBzEXbnqpmRo=
 github.com/prometheus-community/prom-label-proxy v0.6.0 h1:vRY29tUex8qI2MEimovTzJdieEwiSko+f7GuPCLjFkI=
 github.com/prometheus-community/prom-label-proxy v0.6.0/go.mod h1:XyAyskjjhqEx0qnbGUVeAkYSz3Wm9gStT7/wXFxD8n0=
 github.com/prometheus-community/stackdriver_exporter v0.15.1 h1:+k26zeBy8BlG+eDKPtYA7IKXrQCI7ISLfktjIUu7wBQ=

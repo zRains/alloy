@@ -588,6 +588,7 @@ require (
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/power-devops/perfstat v0.0.0-20220216144756-c35f1ee13d7c // indirect
 	github.com/prometheus-community/go-runit v0.1.0 // indirect
+	github.com/prometheus-community/json_exporter v0.6.0 // indirect
 	github.com/prometheus-community/prom-label-proxy v0.6.0 // indirect
 	github.com/prometheus/alertmanager v0.27.0 // indirect
 	github.com/prometheus/exporter-toolkit v0.11.0 // indirect
