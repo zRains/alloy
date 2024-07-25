@@ -18,6 +18,7 @@ import (
 	"github.com/grafana/alloy/internal/runtime/componenttest"
 	"github.com/grafana/alloy/internal/runtime/logging"
 	"github.com/grafana/alloy/internal/service"
+	"github.com/grafana/alloy/internal/service/livedebugging"
 	"github.com/grafana/alloy/internal/util"
 	"github.com/grafana/alloy/syntax"
 	"github.com/prometheus/client_golang/prometheus"
@@ -177,7 +178,7 @@ func (f fakeHost) NewController(id string) service.Controller {
 		MinStability:    featuregate.StabilityGenerallyAvailable,
 		Reg:             prometheus.NewRegistry(),
 		OnExportsChange: func(map[string]interface{}) {},
-		Services:        []service.Service{},
+		Services:        []service.Service{livedebugging.New()},
 	})
 
 	return serviceController{ctrl}
@@ -197,21 +198,6 @@ func (ag *collectorClient) GetConfig(ctx context.Context, req *connect.Request[c
 	}
 
 	panic("getConfigFunc not set")
-}
-func (ag *collectorClient) GetCollector(context.Context, *connect.Request[collectorv1.GetCollectorRequest]) (*connect.Response[collectorv1.Collector], error) {
-	return nil, nil
-}
-func (ag *collectorClient) CreateCollector(context.Context, *connect.Request[collectorv1.CreateCollectorRequest]) (*connect.Response[collectorv1.Collector], error) {
-	return nil, nil
-}
-func (ag *collectorClient) UpdateCollector(context.Context, *connect.Request[collectorv1.UpdateCollectorRequest]) (*connect.Response[collectorv1.Collector], error) {
-	return nil, nil
-}
-func (ag *collectorClient) DeleteCollector(context.Context, *connect.Request[collectorv1.DeleteCollectorRequest]) (*connect.Response[collectorv1.DeleteCollectorResponse], error) {
-	return nil, nil
-}
-func (ag *collectorClient) ListCollectors(context.Context, *connect.Request[collectorv1.ListCollectorsRequest]) (*connect.Response[collectorv1.Collectors], error) {
-	return nil, nil
 }
 
 type serviceController struct {

@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,10 +19,12 @@ import (
 	collectorv1 "github.com/grafana/alloy-remote-config/api/gen/proto/go/collector/v1"
 	"github.com/grafana/alloy-remote-config/api/gen/proto/go/collector/v1/collectorv1connect"
 	"github.com/grafana/alloy/internal/alloyseed"
+	"github.com/grafana/alloy/internal/build"
 	"github.com/grafana/alloy/internal/component/common/config"
 	"github.com/grafana/alloy/internal/featuregate"
 	"github.com/grafana/alloy/internal/runtime/logging/level"
 	"github.com/grafana/alloy/internal/service"
+	"github.com/grafana/alloy/internal/util/jitter"
 	"github.com/grafana/alloy/syntax"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -31,6 +36,8 @@ func getHash(in []byte) string {
 	fnvHash.Write(in)
 	return fmt.Sprintf("%x", fnvHash.Sum(nil))
 }
+
+const baseJitter = 100 * time.Millisecond
 
 // Service implements a service for remote configuration.
 // The default value of ch is nil; this means it will block forever if the
@@ -46,10 +53,11 @@ type Service struct {
 
 	mut               sync.RWMutex
 	asClient          collectorv1connect.CollectorServiceClient
-	ch                <-chan time.Time
-	ticker            *time.Ticker
+	ticker            *jitter.Ticker
 	dataPath          string
 	currentConfigHash string
+	systemAttrs       map[string]string
+	attrs             map[string]string
 	metrics           *metrics
 }
 
@@ -65,6 +73,9 @@ type metrics struct {
 // ServiceName defines the name used for the remotecfg service.
 const ServiceName = "remotecfg"
 
+const reservedAttributeNamespace = "collector"
+const namespaceDelimiter = "."
+
 // Options are used to configure the remotecfg service. Options are
 // constant for the lifetime of the remotecfg service.
 type Options struct {
@@ -77,7 +88,7 @@ type Options struct {
 type Arguments struct {
 	URL              string                   `alloy:"url,attr,optional"`
 	ID               string                   `alloy:"id,attr,optional"`
-	Metadata         map[string]string        `alloy:"metadata,attr,optional"`
+	Attributes       map[string]string        `alloy:"attributes,attr,optional"`
 	PollFrequency    time.Duration            `alloy:"poll_frequency,attr,optional"`
 	HTTPClientConfig *config.HTTPClientConfig `alloy:",squash"`
 }
@@ -86,7 +97,7 @@ type Arguments struct {
 func GetDefaultArguments() Arguments {
 	return Arguments{
 		ID:               alloyseed.Get().UID,
-		Metadata:         make(map[string]string),
+		Attributes:       make(map[string]string),
 		PollFrequency:    1 * time.Minute,
 		HTTPClientConfig: config.CloneDefaultHTTPClientConfig(),
 	}
@@ -101,6 +112,12 @@ func (a *Arguments) SetToDefault() {
 func (a *Arguments) Validate() error {
 	if a.PollFrequency < 10*time.Second {
 		return fmt.Errorf("poll_frequency must be at least \"10s\", got %q", a.PollFrequency)
+	}
+
+	for k := range a.Attributes {
+		if strings.HasPrefix(k, reservedAttributeNamespace+namespaceDelimiter) {
+			return fmt.Errorf("%q is a reserved namespace for remotecfg attribute keys", reservedAttributeNamespace)
+		}
 	}
 
 	// We must explicitly Validate because HTTPClientConfig is squashed and it
@@ -130,9 +147,17 @@ func New(opts Options) (*Service, error) {
 	}
 
 	return &Service{
-		opts:   opts,
-		ticker: time.NewTicker(math.MaxInt64),
+		opts:        opts,
+		systemAttrs: getSystemAttributes(),
+		ticker:      jitter.NewTicker(math.MaxInt64-baseJitter, baseJitter), // first argument is set as-is to avoid overflowing
 	}, nil
+}
+
+func getSystemAttributes() map[string]string {
+	return map[string]string{
+		reservedAttributeNamespace + namespaceDelimiter + "version": build.Version,
+		reservedAttributeNamespace + namespaceDelimiter + "os":      runtime.GOOS,
+	}
 }
 
 func (s *Service) registerMetrics() {
@@ -210,7 +235,7 @@ func (s *Service) Run(ctx context.Context, host service.Host) error {
 
 	for {
 		select {
-		case <-s.ch:
+		case <-s.ticker.C:
 			err := s.fetchRemote()
 			if err != nil {
 				level.Error(s.opts.Logger).Log("msg", "failed to fetch remote configuration from the API", "err", err)
@@ -230,8 +255,7 @@ func (s *Service) Update(newConfig any) error {
 	// it. Make sure we stop everything gracefully before returning.
 	if newArgs.URL == "" {
 		s.mut.Lock()
-		s.ch = nil
-		s.ticker.Reset(math.MaxInt64)
+		s.ticker.Reset(math.MaxInt64 - baseJitter) // avoid overflowing
 		s.asClient = noopClient{}
 		s.args.HTTPClientConfig = config.CloneDefaultHTTPClientConfig()
 		s.mut.Unlock()
@@ -247,7 +271,6 @@ func (s *Service) Update(newConfig any) error {
 	}
 	s.dataPath = filepath.Join(s.opts.StoragePath, ServiceName, hash)
 	s.ticker.Reset(newArgs.PollFrequency)
-	s.ch = s.ticker.C
 	// Update the HTTP client last since it might fail.
 	if !reflect.DeepEqual(s.args.HTTPClientConfig, newArgs.HTTPClientConfig) {
 		httpClient, err := commonconfig.NewClientFromConfig(*newArgs.HTTPClientConfig.Convert(), "remoteconfig")
@@ -259,7 +282,12 @@ func (s *Service) Update(newConfig any) error {
 			newArgs.URL,
 		)
 	}
-	s.args = newArgs // Update the args as the last step to avoid polluting any comparisons
+	// Combine the new attributes on top of the system attributes
+	s.attrs = maps.Clone(s.systemAttrs)
+	maps.Copy(s.attrs, newArgs.Attributes)
+
+	// Update the args as the last step to avoid polluting any comparisons
+	s.args = newArgs
 	s.mut.Unlock()
 
 	// If we've already called Run, then immediately trigger an API call with
@@ -328,8 +356,8 @@ func (s *Service) fetchLocal() {
 func (s *Service) getAPIConfig() ([]byte, error) {
 	s.mut.RLock()
 	req := connect.NewRequest(&collectorv1.GetConfigRequest{
-		Id:       s.args.ID,
-		Metadata: s.args.Metadata,
+		Id:         s.args.ID,
+		Attributes: s.attrs,
 	})
 	client := s.asClient
 	s.mut.RUnlock()
